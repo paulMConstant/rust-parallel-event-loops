@@ -1,13 +1,10 @@
 /// Creates n event loops, each running in its separate thread.
 ///
 /// Active loops run continuously, they call their event handlers(on_event) and their main_loop
-/// functions in an infinite loop. 
+/// functions in an infinite loop.
 ///
 /// Reactive loops run only when they receive events. They call the corresponding callbacks then go
 /// back to sleep.
-///
-/// The connection must be made between events and events loop so that each event is sent to the
-/// event loops which react to it.
 ///
 /// Each event loop must implement a trait which defines their handler function signatures (e.g. if
 /// I listen to EventTriggered, I must implement the on_event_triggered function). See examples for
@@ -18,19 +15,18 @@
 macro_rules! create_event_loops {
     (events: $($event_name: ident { $($field: ident : $type: ty),* }),* ;
 
-     active_loops: $($active_loop_name: ident ($($field_active: ident : $type_active: ty = $init_field_active: expr)*) 
-                     emits { $($event_to_emit_active: ident),* } reacts to { $($event_to_react_to_active: ident),*}),* ;
+     $(active_loops: $($active_loop_name: ident ($($field_active: ident : $type_active: ty = $init_field_active: expr)*)
+                     publishes { $($event_to_publish_active: ident),* } subscribes to { $($event_to_react_to_active: ident),*}),*)? ;
 
-     reactive_loops: $($reactive_loop_name: ident ($($field_reactive: ident : $type_reactive: ty = $init_field_reactive: expr)*) 
-                       emits { $($event_to_emit_reactive: ident),*}  reacts to { $($event_to_react_to: ident),*}),* ;
-
-     event_connections: $(send $event_name_trigger: ident to { $($loop_triggered: ident),* }),*) => {
+     $(reactive_loops: $($reactive_loop_name: ident ($($field_reactive: ident : $type_reactive: ty = $init_field_reactive: expr)*)
+                       publishes { $($event_to_publish_reactive: ident),*} subscribes to { $($event_to_react_to_reactive: ident),*}),*)?
+     ) => {
 
 ::paste::paste!{
     // ========================================================================================
-    //                              General structs and types 
+    //                              General structs and types
     // ========================================================================================
-    
+
     // Create the events enum, containing all structs
     #[derive(Clone)]
     pub enum PelAllEvents {
@@ -51,7 +47,7 @@ macro_rules! create_event_loops {
         lock: ::std::sync::Mutex<bool>,
         cvar: ::std::sync::Condvar,
     }
-    
+
     impl PelSafeCondvar {
         pub fn new(lock: ::std::sync::Mutex<bool>, cvar: ::std::sync::Condvar,) -> Self {
             PelSafeCondvar { lock, cvar, }
@@ -73,8 +69,46 @@ macro_rules! create_event_loops {
         }
     }
 
+    // Event sender / receiver wrappers
+    pub struct PelEventSender {
+        event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
+        wakeup_condvar: ::std::sync::Arc<PelSafeCondvar>,
+    }
+
+    impl PelEventSender {
+        pub fn new(event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
+                   wakeup_condvar: ::std::sync::Arc<PelSafeCondvar>,) -> Self {
+            PelEventSender { event_queue, wakeup_condvar, }
+        }
+
+        pub fn send_event(&self, event: PelAllEvents) {
+            self.event_queue.lock().unwrap().push_back(event);
+            // Notify the condvar that an event has been pushed
+            self.wakeup_condvar.notify();
+        }
+    }
+
+    pub struct PelEventReceiver {
+        event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
+        wakeup_condvar: ::std::sync::Arc<PelSafeCondvar>,
+    }
+
+    impl PelEventReceiver {
+        pub fn new(event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
+                   wakeup_condvar: ::std::sync::Arc<PelSafeCondvar>,) -> Self {
+            PelEventReceiver { event_queue, wakeup_condvar, }
+        }
+
+        pub fn get_next_event(&self) -> Option<PelAllEvents> {
+            self.event_queue.clone().lock().unwrap().pop_front()
+        }
+
+        pub fn wait_for_next_event(&self) {
+            self.wakeup_condvar.wait();
+        }
+    }
     // Trait to be implemented by every active loop
-    pub trait PelActiveEventLoop {
+    pub trait MainLoop {
         fn main_loop(&mut self);
     }
 
@@ -83,28 +117,25 @@ macro_rules! create_event_loops {
     // ========================================================================================
 
     // For each active event loop, create a custom struct
-    $(
+    $($(
     pub struct $active_loop_name {
-        main_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-        main_condvar: ::std::sync::Arc<PelSafeCondvar>,
-        self_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-        self_condvar: ::std::sync::Arc<PelSafeCondvar>,
-
+        _pel_internal_event_sender: PelEventSender,
+        _pel_internal_event_receiver: PelEventReceiver,
         $($field_active: $type_active)*
     }
 
     // Create a custom trait with all handlers, must be implemented
-    pub trait [<Pel $active_loop_name Handlers>] {
+    pub trait [<$active_loop_name EventHandlers>] {
         $(fn [<on_ $event_to_react_to_active:snake>](&mut self, event: $event_to_react_to_active);),*
     }
 
     // Calling this function ensures that the handler trait is implemented by the struct
     fn [<_pel_assert_ $active_loop_name:snake _implements_its_event_handler_trait>]
-        <T>() where T: [<Pel $active_loop_name Handlers>] {}
+        <T>() where T: [<$active_loop_name EventHandlers>] {}
 
     // Calling this function ensures that the main loop trait is implemented by the struct
     fn [<_pel_assert_ $active_loop_name:snake _implements_its_main_loop_trait>]
-        <T>() where T: PelActiveEventLoop {}
+        <T>() where T: MainLoop {}
 
     impl $active_loop_name {
         pub fn new(main_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
@@ -112,33 +143,43 @@ macro_rules! create_event_loops {
                    self_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
                    self_condvar: ::std::sync::Arc<PelSafeCondvar>,
            ) -> Self {
-            $active_loop_name { 
-                main_event_queue, main_condvar, self_event_queue, self_condvar,
+            $active_loop_name {
+                _pel_internal_event_sender: PelEventSender::new(main_event_queue, main_condvar),
+                _pel_internal_event_receiver: PelEventReceiver::new(self_event_queue, self_condvar),
                 $($field_active: $init_field_active)*
             }
         }
 
         // For each event the active loop can send, create a custom function
         $(
-        pub fn [<emit _$event_to_emit_active:snake>](&self, [<$event_to_emit_active:snake>]: $event_to_emit_active) {
-        self.main_event_queue.lock().unwrap().push_back(PelAllEvents::$event_to_emit_active([<$event_to_emit_active:snake>]));
-        // Notify the condvar that an event has been pushed
-        self.main_condvar.notify();
+        pub fn [<publish_ $event_to_publish_active:snake>](&self, [<$event_to_publish_active:snake>]: $event_to_publish_active) {
+            self._pel_internal_event_sender.send_event(PelAllEvents::$event_to_publish_active([<$event_to_publish_active:snake>]));
         }
         ),*
+
+        pub const fn is_subscribed_to_event(event: &PelAllEvents) -> bool {
+            match event {
+                $(PelAllEvents::$event_to_react_to_active([<$event_to_react_to_active:snake>]) => true,),*
+                _ => false,
+            }
+        }
 
         // For each event the active loop can receive, call a custom handler
         pub fn process_events(&mut self) {
             // Don't wait here, we don't want this function to put the thread to sleep.
-            while let Some(event) = self.self_event_queue.clone().lock().unwrap().pop_front() {
+            while let Some(event) = self._pel_internal_event_receiver.get_next_event() {
                 match event {
                     $(PelAllEvents::$event_to_react_to_active([<$event_to_react_to_active:snake>]) => self.[<on_ $event_to_react_to_active:snake>]([<$event_to_react_to_active:snake>]),),*
                     _ => panic!("Unhandled event"),
                 }
             }
         }
+
+        pub fn wait_for_next_event(&self) {
+            self._pel_internal_event_receiver.wait_for_next_event();
+        }
     }
-    )*
+    )*)*
 
     // ========================================================================================
     //                              Reactive event loops
@@ -146,23 +187,21 @@ macro_rules! create_event_loops {
 
 
     // For each active event loop, create a custom struct
-    $(
+    $($(
     pub struct $reactive_loop_name {
-        main_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-        main_condvar: ::std::sync::Arc<PelSafeCondvar>,
-        self_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-        self_condvar: ::std::sync::Arc<PelSafeCondvar>,
+        _pel_internal_event_sender: PelEventSender,
+        _pel_internal_event_receiver: PelEventReceiver,
 
         $($field_reactive: $type_reactive)*
     }
 
     // Create a custom trait with all handlers, must be implemented
-    pub trait [<Pel $reactive_loop_name Handlers>] {
-        $(fn [<on_ $event_to_react_to:snake>](&mut self, event: $event_to_react_to);),*
+    pub trait [<$reactive_loop_name EventHandlers>] {
+        $(fn [<on_ $event_to_react_to_reactive:snake>](&mut self, event: $event_to_react_to_reactive);),*
     }
     // Calling this function ensures that the trait is implemented by the struct
     fn [<_pel_assert_ $reactive_loop_name:snake _implements_its_event_handler_trait>]
-        <T>() where T: [<Pel $reactive_loop_name Handlers>] {}
+        <T>() where T: [<$reactive_loop_name EventHandlers>] {}
 
     impl $reactive_loop_name {
         pub fn new(main_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
@@ -170,96 +209,100 @@ macro_rules! create_event_loops {
                    self_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
                    self_condvar: ::std::sync::Arc<PelSafeCondvar>,
            ) -> Self {
-            $reactive_loop_name { main_event_queue, main_condvar, self_event_queue, self_condvar, 
+            $reactive_loop_name {
+                _pel_internal_event_sender: PelEventSender::new(main_event_queue, main_condvar),
+                _pel_internal_event_receiver: PelEventReceiver::new(self_event_queue, self_condvar),
                 $($field_reactive: $init_field_reactive)*
             }
         }
 
         // For each event the reactive loop can send, create a custom function
         $(
-        pub fn [<emit _$event_to_emit_reactive:snake>](&self, [<$event_to_emit_reactive:snake>]: $event_to_emit_reactive) {
-        self.main_event_queue.lock().unwrap().push_back(PelAllEvents::$event_to_emit_reactive([<$event_to_emit_reactive:snake>]));
-        // Notify the condvar that an event has been pushed
-        self.main_condvar.notify();
+        pub fn [<publish _$event_to_publish_reactive:snake>](&self, [<$event_to_publish_reactive:snake>]: $event_to_publish_reactive) {
+            self._pel_internal_event_sender.send_event(PelAllEvents::$event_to_publish_reactive([<$event_to_publish_reactive:snake>]));
         }
         ),*
 
+        pub const fn is_subscribed_to_event(event: &PelAllEvents) -> bool {
+            match event {
+                $(PelAllEvents::$event_to_react_to_reactive([<$event_to_react_to_reactive:snake>]) => true,),*
+                _ => false,
+            }
+        }
+
         // For each event the reactive loop can receive, call a custom handler
         pub fn process_events(&mut self) {
-            self.self_condvar.wait();
-            while let Some(event) = self.self_event_queue.clone().lock().unwrap().pop_front() {
+            self._pel_internal_event_receiver.wait_for_next_event();
+            while let Some(event) = self._pel_internal_event_receiver.get_next_event() {
                 match event {
-                    $(PelAllEvents::$event_to_react_to([<$event_to_react_to:snake>]) => self.[<on_ $event_to_react_to:snake>]([<$event_to_react_to:snake>].clone()),),*
+                    $(PelAllEvents::$event_to_react_to_reactive([<$event_to_react_to_reactive:snake>]) => self.[<on_ $event_to_react_to_reactive:snake>]([<$event_to_react_to_reactive:snake>].clone()),),*
                     _ => panic!("Unhandled event"),
                 }
             }
         }
     }
-    )*
+    )*)*
 
     // ========================================================================================
     //                              Main event loop
     // ========================================================================================
 
     pub struct PelMainEventLoop {
-        main_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-        main_condvar: ::std::sync::Arc<PelSafeCondvar>,
-        $(
-            [<$reactive_loop_name:snake _event_queue>]: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-            [<$reactive_loop_name:snake _condvar>]: ::std::sync::Arc<PelSafeCondvar>,
-        )*
-        $(
-            [<$active_loop_name:snake _event_queue>]: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-            [<$active_loop_name:snake _condvar>]: ::std::sync::Arc<PelSafeCondvar>,
-        )*
+        _pel_internal_event_receiver: PelEventReceiver,
+        $($(
+            [<_pel_internal_ $reactive_loop_name:snake _event_sender>]: PelEventSender,
+        )*)*
+        $($(
+            [<_pel_internal_ $active_loop_name:snake _event_sender>]: PelEventSender,
+        )*)*
     }
 
     impl PelMainEventLoop {
         pub fn new(main_event_queue: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
                    main_condvar: ::std::sync::Arc<PelSafeCondvar>,
-           $(
+           $($(
             [<$reactive_loop_name:snake _event_queue>]: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
             [<$reactive_loop_name:snake _condvar>]: ::std::sync::Arc<PelSafeCondvar>,
-            )*
-            $(
-                [<$active_loop_name:snake _event_queue>]: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
-                [<$active_loop_name:snake _condvar>]: ::std::sync::Arc<PelSafeCondvar>,
-            )*
+            )*)*
+            $($(
+            [<$active_loop_name:snake _event_queue>]: ::std::sync::Arc<::std::sync::Mutex<PelEventQueue>>,
+            [<$active_loop_name:snake _condvar>]: ::std::sync::Arc<PelSafeCondvar>,
+            )*)*
            ) -> Self {
             PelMainEventLoop {
-                main_event_queue, main_condvar, 
-           $(
-            [<$reactive_loop_name:snake _event_queue>],
-            [<$reactive_loop_name:snake _condvar>],
-            )*
-           $(
-            [<$active_loop_name:snake _event_queue>],
-            [<$active_loop_name:snake _condvar>],
-            )*
-            
+                _pel_internal_event_receiver: PelEventReceiver::new(main_event_queue, main_condvar),
+           $($(
+            [<_pel_internal_ $reactive_loop_name:snake _event_sender>]: PelEventSender::new(
+                [<$reactive_loop_name:snake _event_queue>], [<$reactive_loop_name:snake _condvar>]),
+            )*)*
+           $($(
+            [<_pel_internal_ $active_loop_name:snake _event_sender>]: PelEventSender::new(
+                [<$active_loop_name:snake _event_queue>], [<$active_loop_name:snake _condvar>]),
+            )*)*
             }
+        }
+
+        fn send_to_subscribed_event_senders(&self, event: &PelAllEvents) {
+            $($(if $reactive_loop_name::is_subscribed_to_event(&event) {
+                self.[<_pel_internal_ $reactive_loop_name:snake _event_sender>]
+                    .send_event(event.clone());
+            })*)*
+            $($(if $active_loop_name::is_subscribed_to_event(&event) {
+                self.[<_pel_internal_ $active_loop_name:snake _event_sender>]
+                    .send_event(event.clone());
+            })*)*
         }
 
         pub fn dispatch_events(&self) {
             // Wait for event (thread put to sleep while waiting)
-            self.main_condvar.wait();
+            self._pel_internal_event_receiver.wait_for_next_event();
 
             // Process events
-            while let Some(event) = self.main_event_queue.lock().unwrap().pop_front() {
+            while let Some(event) = self._pel_internal_event_receiver.get_next_event() {
                 match event {
                     // For every possible event
-                    $(PelAllEvents::$event_name_trigger([<$event_name_trigger:snake>]) =>  {
-                        // For every event loop which the event triggers
-                      $(
-                          // Push the event into the event loop
-                          self.[<$loop_triggered:snake _event_queue>]
-                          .lock()
-                          .unwrap()
-                          .push_back(PelAllEvents::$event_name_trigger([<$event_name_trigger:snake>].clone()));
-
-                          // Notify the condvar that a new event is up
-                          self.[<$loop_triggered:snake _condvar>].notify();
-                      )*
+                    $(PelAllEvents::$event_name([<$event_name:snake>]) => {
+                        self.send_to_subscribed_event_senders(&PelAllEvents::$event_name([<$event_name:snake>]));
                     },)*
                 }
             }
@@ -272,13 +315,11 @@ macro_rules! create_event_loops {
 
     fn main() {
         // Assert that every active loop implements the main loop trait
-        $([<_pel_assert_ $active_loop_name:snake _implements_its_main_loop_trait>]::<$active_loop_name>();)*
+        $($([<_pel_assert_ $active_loop_name:snake _implements_its_main_loop_trait>]::<$active_loop_name>();)*)*
 
         // Assert that every event handler trait is implemented by its event loop struct
-        $([<_pel_assert_ $active_loop_name:snake _implements_its_event_handler_trait>]::<$active_loop_name>();)*
-        $([<_pel_assert_ $reactive_loop_name:snake _implements_its_event_handler_trait>]::<$reactive_loop_name>();)*
-
-        // TODO assert that every event is sent to every event loop which listens to it
+        $($([<_pel_assert_ $active_loop_name:snake _implements_its_event_handler_trait>]::<$active_loop_name>();)*)*
+        $($([<_pel_assert_ $reactive_loop_name:snake _implements_its_event_handler_trait>]::<$reactive_loop_name>();)*)*
 
         // Main event queue in which all events are sent
         let pel_main_event_queue = ::std::sync::Arc::new(::std::sync::Mutex::new(PelEventQueue::new()));
@@ -288,7 +329,7 @@ macro_rules! create_event_loops {
         ));
 
         // Create and launch active event loops
-        $(
+        $($(
         // Reactive event queue in which all events are sent
         let [<pel_ $active_loop_name:snake _event_queue>] = ::std::sync::Arc::new(::std::sync::Mutex::new(PelEventQueue::new()));
         // Reactive condvar to wakeup thread and process events
@@ -307,10 +348,10 @@ macro_rules! create_event_loops {
             [<pel_ $active_loop_name:snake _struct>].process_events();
             [<pel_ $active_loop_name:snake _struct>].main_loop();
         });
-        )*
+        )*)*
 
         // Create and launch reactive event loops
-        $(
+        $($(
         // Reactive event queue in which all events are sent
         let [<pel_ $reactive_loop_name:snake _event_queue>] = ::std::sync::Arc::new(::std::sync::Mutex::new(PelEventQueue::new()));
         // Reactive condvar to wakeup thread and process events
@@ -328,32 +369,32 @@ macro_rules! create_event_loops {
         ::std::thread::spawn(move || loop {
             [<pel_ $reactive_loop_name:snake _struct>].process_events();
         });
-        )*
+        )*)*
 
         let pel_main_event_loop = PelMainEventLoop::new(
             pel_main_event_queue.clone(),
             pel_main_condvar.clone(),
-            $(
+            $($(
             [<pel_ $reactive_loop_name:snake _event_queue>].clone(),
             [<pel_ $reactive_loop_name:snake _condvar>].clone(),
-            )*
-            $(
+            )*)*
+            $($(
             [<pel_ $active_loop_name:snake _event_queue>].clone(),
             [<pel_ $active_loop_name:snake _condvar>].clone(),
-            )*
+            )*)*
             );
 
 
         // Remove warnings about unused variables, we cloned them in the structs and don't need
         // them anymore
-        $(
+        $($(
          drop([<pel_ $reactive_loop_name:snake _event_queue>]);
          drop([<pel_ $reactive_loop_name:snake _condvar>]);
-        )*
-        $(
+        )*)*
+        $($(
          drop([<pel_ $active_loop_name:snake _event_queue>]);
          drop([<pel_ $active_loop_name:snake _condvar>]);
-         )*
+         )*)*
 
         //Launch main loop
         loop {
