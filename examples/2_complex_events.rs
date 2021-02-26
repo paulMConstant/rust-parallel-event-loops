@@ -10,21 +10,19 @@
 use std::io::prelude::*;
 
 pel::create_event_loops!(
-    events: InputReceived { line: String }, WordReceived { word: String } ;
+    events: InputReceived { line: String }, WordReceived { word: String }, TimerReset {} ;
 
-    active_loops: ReadStdin () publishes { InputReceived } subscribes to { },
-                  TimerPrinter (counter: u32 = 0) publishes { } subscribes to { InputReceived };
+    active_loops: ReadStdin {} publishes (InputReceived) subscribes to (),
+                  TimerPrinter {counter: u32 = 0} publishes (TimerReset) subscribes to (InputReceived);
 
-    reactive_loops: PrintStdout () publishes { WordReceived } subscribes to { InputReceived },
-                    PrintWords () publishes { } subscribes to { WordReceived });
+    reactive_loops: PrintStdout {} publishes (WordReceived) subscribes to (InputReceived),
+                    PrintWords {} publishes () subscribes to (WordReceived));
 
 impl MainLoop for ReadStdin {
     fn main_loop(&mut self) {
         println!("[Read Stdin Thread] Send me text and I will notify the other threads.");
         for line in std::io::stdin().lock().lines() {
-            self.publish_input_received(InputReceived {
-                line: line.unwrap(),
-            });
+            self.publish_input_received(InputReceived::new(line.unwrap()));
         }
     }
 }
@@ -47,22 +45,21 @@ impl MainLoop for TimerPrinter {
 impl TimerPrinterEventHandlers for TimerPrinter {
     fn on_input_received(&mut self, _event: InputReceived) {
         self.counter = 0;
+        self.publish_timer_reset(TimerReset::new());
     }
 }
 
 impl PrintStdoutEventHandlers for PrintStdout {
     fn on_input_received(&mut self, event: InputReceived) {
-        println!("[Input Thread] Received line '{}' !", event.line);
+        println!("[Input Thread] Received line {}", event.line);
         for word in event.line.split(' ') {
-            self.publish_word_received(WordReceived {
-                word: word.to_string(),
-            });
+            self.publish_word_received(WordReceived::new(word.to_string()));
         }
     }
 }
 
 impl PrintWordsEventHandlers for PrintWords {
     fn on_word_received(&mut self, event: WordReceived) {
-        println!("[Word Thread] Received word '{}' !", event.word);
+        println!("[Word Thread] Received word {}", event.word);
     }
 }

@@ -1,25 +1,66 @@
 /// Creates n event loops, each running in its separate thread.
+/// There are two types of loops: active loops and reactive loops.
+/// Each type of loop can subscribe to events and publish events.
 ///
-/// Active loops run continuously, they call their event handlers(on_event) and their main_loop
-/// functions in an infinite loop.
+/// Active loops run continuously. The process_events() function is non-blocking.
+/// ```ignore
+/// loop {
+///     active_loop.process_events();
+///     active_loop.main_loop();
+/// }
+/// ```
 ///
-/// Reactive loops run only when they receive events. They call the corresponding callbacks then go
-/// back to sleep.
+/// Reactive loops run only when they receive events. The process_events() function is blocking:
+/// the thread goes to sleep when there are no events to process.
+/// ```ignore
+/// loop {
+///     reactive_loops.process_events();
+/// }
+/// ```
 ///
-/// Each event loop must implement a trait which defines their handler function signatures (e.g. if
-/// I listen to EventTriggered, I must implement the on_event_triggered function). See examples for
-/// more details.
+/// process_events functions are generated automatically, in this form (pseudo-code) :
+/// ```ignore
+/// pub fn process_events(event: PelAllEvents) {
+///     match event {
+///         PelAllEvents::EventA(event_a) => self.on_event_a(event_a),
+///         PelAllEvents::EventB(event_b) => self.on_event_b(event_b),
+///         _ => panic!("Unhandled event"),
+///     }
+/// }
+/// ```
 ///
-/// Each active event loop must implement a trait which defines their main_loop function signature.
+/// Each loop has a custom trait to implement, in the case above, assuming the event_loop is called
+/// Test, it must implement the following trait:
+/// ```ignore
+/// pub trait TestEventHandlers {
+///     fn on_event_a(&self, EventA) {
+///         // Do something
+///     }
+///
+///     fn on_event_b(&self, EventB) {
+///         // Do something
+///     }
+/// }
+///```
+///
+/// In the case of active event loops, they also have to implement the MainLoop trait in which they
+/// define their main_loop function:
+/// ```ignore
+/// pub trait MainLoop {
+///     fn main_loop(&self) {
+///         // Do something repeatedly, using a state which maybe changes due to process_events.
+///     }
+/// }
+/// ```
 #[macro_export]
 macro_rules! create_event_loops {
-    (events: $($event_name: ident { $($field: ident : $type: ty),* }),* ;
+    (events: $($event_name: ident { $($event_field: ident : $event_field_type: ty),* }),* ;
 
-     $(active_loops: $($active_loop_name: ident ($($field_active: ident : $type_active: ty = $init_field_active: expr)*)
-                     publishes { $($event_to_publish_active: ident),* } subscribes to { $($event_to_react_to_active: ident),*}),*)? ;
+     $(active_loops: $($active_loop_name: ident { $($field_active: ident : $type_active: ty = $init_field_active: expr)* }
+                     publishes ( $($event_to_publish_active: ident),* ) subscribes to ( $($event_to_react_to_active: ident),*)),*)? ;
 
-     $(reactive_loops: $($reactive_loop_name: ident ($($field_reactive: ident : $type_reactive: ty = $init_field_reactive: expr)*)
-                       publishes { $($event_to_publish_reactive: ident),*} subscribes to { $($event_to_react_to_reactive: ident),*}),*)?
+     $(reactive_loops: $($reactive_loop_name: ident { $($field_reactive: ident : $type_reactive: ty = $init_field_reactive: expr)* }
+                       publishes ( $($event_to_publish_reactive: ident),*) subscribes to ( $($event_to_react_to_reactive: ident),*)),*)?
      ) => {
 
 ::paste::paste!{
@@ -37,7 +78,15 @@ macro_rules! create_event_loops {
     $(
     #[derive(Clone)]
     pub struct $event_name {
-        $(pub $field: $type,),*
+        $(pub $event_field: $event_field_type,),*
+    }
+
+    impl $event_name {
+        pub fn new($($event_field: $event_field_type),*) -> Self {
+            $event_name {
+                $($event_field),*
+            }
+        }
     }
     )*
 
