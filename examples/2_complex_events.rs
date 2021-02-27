@@ -10,10 +10,10 @@
 use std::io::prelude::*;
 
 pel::create_event_loops!(
-    events: InputReceived { line: String }, WordReceived { word: String }, TimerReset {} ;
+    events: InputReceived { line: String }, WordReceived { word: String }, TimerReset {}
 
     active_loops: ReadStdin {} publishes (InputReceived) subscribes to (),
-                  TimerPrinter {counter: u32 = 0} publishes (TimerReset) subscribes to (InputReceived);
+                  TimerPrinter {counter: u32 = 0} publishes (TimerReset) subscribes to (InputReceived)
 
     reactive_loops: PrintStdout {} publishes (WordReceived) subscribes to (InputReceived),
                     PrintWords {} publishes () subscribes to (WordReceived));
@@ -62,4 +62,8 @@ impl PrintWordsEventHandlers for PrintWords {
     fn on_word_received(&mut self, event: WordReceived) {
         println!("[Word Thread] Received word {}", event.word);
     }
+}
+
+fn main() {
+    pel_main();
 }
