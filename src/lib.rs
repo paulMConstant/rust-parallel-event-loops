@@ -89,13 +89,13 @@ macro_rules! create_event_loops {
 
      $(active_loops: $($active_loop_name: ident
             { $($field_active: ident : $type_active: ty = $init_field_active: expr),* }
-            publishes ( $($event_to_publish_active: ident),* )
-            subscribes to ( $($event_to_react_to_active: ident),*)),*)?
+            $(publishes ( $($event_to_publish_active: ident),* ))?
+            $(subscribes to ( $($event_to_react_to_active: ident),*))?),*)?
 
      $(reactive_loops: $($reactive_loop_name: ident
             { $($field_reactive: ident : $type_reactive: ty = $init_field_reactive: expr),* }
-            publishes ( $($event_to_publish_reactive: ident),*)
-            subscribes to ( $($event_to_react_to_reactive: ident),*)),*)?
+            $(publishes ( $($event_to_publish_reactive: ident),*))?
+            $(subscribes to ( $($event_to_react_to_reactive: ident),*))?),*)?
      ) => {
 
 ::paste::paste!{
@@ -143,14 +143,16 @@ macro_rules! create_event_loops {
     }
 
     // Create a custom trait with all handlers, must be implemented
-    pub trait [<$active_loop_name EventHandlers>] {
+    $(
+        pub trait [<$active_loop_name EventHandlers>] {
         $(fn [<on_ $event_to_react_to_active:snake>](&mut self,
                                                      event: $event_to_react_to_active);)*
-    }
+        }
 
-    // Calling this function ensures that the handler trait is implemented by the struct
-    fn [<_pel_assert_ $active_loop_name:snake _implements_its_event_handler_trait>]
+        // Calling this function ensures that the handler trait is implemented by the struct
+        fn [<_pel_assert_ $active_loop_name:snake _implements_its_event_handler_trait>]
         <T>() where T: [<$active_loop_name EventHandlers>] {}
+    )*
 
     // Calling this function ensures that the main loop trait is implemented by the struct
     fn [<_pel_assert_ $active_loop_name:snake _implements_its_main_loop_trait>]
@@ -169,7 +171,7 @@ macro_rules! create_event_loops {
         }
 
         // For each event the active loop can send, create a custom function
-        $(
+        $($(
         pub fn [<publish_ $event_to_publish_active:snake>](
             // TODO check result ?
             &self, [<$event_to_publish_active:snake>]: $event_to_publish_active) {
@@ -177,12 +179,12 @@ macro_rules! create_event_loops {
                     PelAllEvents::$event_to_publish_active([<$event_to_publish_active:snake>])
                 );
         }
-        )*
+        )*)*
 
         pub const fn is_subscribed_to_event(event: &PelAllEvents) -> bool {
             match event {
-                $(PelAllEvents::$event_to_react_to_active(
-                        [<$event_to_react_to_active:snake>]) => true,)*
+                $($(PelAllEvents::$event_to_react_to_active(
+                        [<$event_to_react_to_active:snake>]) => true,)*)*
                 _ => false,
             }
         }
@@ -192,10 +194,10 @@ macro_rules! create_event_loops {
             // Don't wait here, we don't want this function to put the thread to sleep.
             while let Ok(event) = self._pel_internal_event_receiver.try_recv() {
                 match event {
-                    $(PelAllEvents::$event_to_react_to_active(
+                    $($(PelAllEvents::$event_to_react_to_active(
                             [<$event_to_react_to_active:snake>]) =>
                         self.[<on_ $event_to_react_to_active:snake>](
-                            [<$event_to_react_to_active:snake>]),)*
+                            [<$event_to_react_to_active:snake>]),)*)*
                     _ => panic!("Unhandled event"),
                 }
             }
@@ -217,14 +219,15 @@ macro_rules! create_event_loops {
     }
 
     // Create a custom trait with all handlers, must be implemented
-    pub trait [<$reactive_loop_name EventHandlers>] {
-        $(fn [<on_ $event_to_react_to_reactive:snake>](&mut self,
-                                                       event: $event_to_react_to_reactive);)*
+    $(pub trait [<$reactive_loop_name EventHandlers>] {
+        $(fn [<on_ $event_to_react_to_reactive:snake>](
+                &mut self,
+                event: $event_to_react_to_reactive);)*
     }
     // Calling this function ensures that the trait is implemented by the struct
     fn [<_pel_assert_ $reactive_loop_name:snake _implements_its_event_handler_trait>]
         <T>() where T: [<$reactive_loop_name EventHandlers>] {}
-
+    )*
     impl $reactive_loop_name {
         pub fn new(event_sender: ::std::sync::mpsc::Sender<PelAllEvents>,
                    event_receiver: ::std::sync::mpsc::Receiver<PelAllEvents>,
@@ -238,7 +241,7 @@ macro_rules! create_event_loops {
         }
 
         // For each event the reactive loop can send, create a custom function
-        $(
+        $($(
         pub fn [<publish _$event_to_publish_reactive:snake>](
             // TODO check result ?
             &self, [<$event_to_publish_reactive:snake>]: $event_to_publish_reactive) {
@@ -246,12 +249,12 @@ macro_rules! create_event_loops {
                     PelAllEvents::$event_to_publish_reactive([<$event_to_publish_reactive:snake>])
                 );
         }
-        )*
+        )*)*
 
         pub const fn is_subscribed_to_event(event: &PelAllEvents) -> bool {
             match event {
-                $(PelAllEvents::$event_to_react_to_reactive(
-                        [<$event_to_react_to_reactive:snake>]) => true,)*
+                $($(PelAllEvents::$event_to_react_to_reactive(
+                        [<$event_to_react_to_reactive:snake>]) => true,)*)*
                 _ => false,
             }
         }
@@ -260,10 +263,10 @@ macro_rules! create_event_loops {
         pub fn process_events(&mut self) {
             while let Ok(event) = self._pel_internal_event_receiver.recv() {
                 match event {
-                    $(PelAllEvents::$event_to_react_to_reactive(
+                    $($(PelAllEvents::$event_to_react_to_reactive(
                             [<$event_to_react_to_reactive:snake>]) =>
                         self.[<on_ $event_to_react_to_reactive:snake>](
-                            [<$event_to_react_to_reactive:snake>].clone()),)*
+                            [<$event_to_react_to_reactive:snake>].clone()),)*)*
                     _ => panic!("Unhandled event"),
                 }
             }
@@ -278,7 +281,7 @@ macro_rules! create_event_loops {
     pub struct PelMainEventLoop {
         _pel_internal_event_receiver: ::std::sync::mpsc::Receiver<PelAllEvents>,
         $($(
-            [<_pel_internal_ $reactive_loop_name:snake _event_sender>]: 
+            [<_pel_internal_ $reactive_loop_name:snake _event_sender>]:
                 ::std::sync::mpsc::Sender<PelAllEvents>,
         )*)*
         $($(
@@ -301,11 +304,11 @@ macro_rules! create_event_loops {
             PelMainEventLoop {
                 _pel_internal_event_receiver: event_receiver,
            $($(
-            [<_pel_internal_ $reactive_loop_name:snake _event_sender>]: 
+            [<_pel_internal_ $reactive_loop_name:snake _event_sender>]:
                 [<$reactive_loop_name:snake _event_sender>],
             )*)*
            $($(
-            [<_pel_internal_ $active_loop_name:snake _event_sender>]: 
+            [<_pel_internal_ $active_loop_name:snake _event_sender>]:
                 [<$active_loop_name:snake _event_sender>],
             )*)*
             }
@@ -358,13 +361,20 @@ macro_rules! create_event_loops {
             ::<$active_loop_name>();)*)*
 
         // Assert that every event handler trait is implemented by its event loop struct
-        $($([<_pel_assert_ $active_loop_name:snake _implements_its_event_handler_trait>]
-            ::<$active_loop_name>();)*)*
-        $($([<_pel_assert_ $reactive_loop_name:snake _implements_its_event_handler_trait>]
-            ::<$reactive_loop_name>();)*)*
+        $($($($([<_pel_assert_ $active_loop_name:snake _implements_its_event_handler_trait>]
+            ::<$active_loop_name>();
+            // This variable will do nothing. While the empty statement is optimized out by the
+            // compiler, this enables us to call the function only if there are events to react to.
+            let [<_pel_useless_ $event_to_react_to_active>] = 0;)*)*)*)*
+
+        $($($($([<_pel_assert_ $reactive_loop_name:snake _implements_its_event_handler_trait>]
+            ::<$reactive_loop_name>();
+            // This variable will do nothing. While the empty statement is optimized out by the
+            // compiler, this enables us to call the function only if there are events to react to.
+            let [<_pel_useless_ $event_to_react_to_reactive>] = 0;)*)*)*)*
 
         // Main event queue in which all events are sent
-        let (pel_main_event_sender, pel_main_event_receiver) = 
+        let (pel_main_event_sender, pel_main_event_receiver) =
             ::std::sync::mpsc::channel();
 
         // Create active event loops
@@ -407,7 +417,7 @@ macro_rules! create_event_loops {
             )*)*
             );
 
-        (pel_main_event_loop, 
+        (pel_main_event_loop,
          PelAllEventLoops {
             $($([<$active_loop_name:snake>]: [<pel_ $active_loop_name:snake _struct>],)*)*
             $($([<$reactive_loop_name:snake>]: [<pel_ $reactive_loop_name:snake _struct>],)*)*

@@ -1,4 +1,4 @@
-//! The 'Read Stdin' thread runs continuously to read stdin. When a line is read, it publishes an 
+//! The 'Read Stdin' thread runs continuously to read stdin. When a line is read, it publishes an
 //! event.
 //! The 'Timer Printer' thread runs continuously and prints the number of seconds since a line was
 //! read from stdin. When a line is read, it resets its counter.
@@ -16,7 +16,7 @@ pel::create_event_loops!(
             TimerReset { n_times_reset: usize, seconds_since_last_input: usize }
 
     active_loops: ReadStdin {} 
-                    publishes (InputReceived, WordsReceived) subscribes to (),
+                    publishes (InputReceived, WordsReceived),
 
                   TimerPrinter {
                       seconds_since_last_input: usize = 0,
@@ -29,7 +29,6 @@ pel::create_event_loops!(
                         subscribes to (InputReceived, TimerReset),
 
                     PrintWordCount {counter: usize = 0} 
-                        publishes () 
                         subscribes to (WordsReceived));
 
 impl MainLoop for ReadStdin {
@@ -41,16 +40,10 @@ impl MainLoop for ReadStdin {
     }
 }
 
-impl ReadStdinEventHandlers for ReadStdin {
-    // No events
-}
-
 impl MainLoop for TimerPrinter {
     fn main_loop(&mut self) {
-        if self.seconds_since_last_input%5 == 0 && self.seconds_since_last_input != 0 {
-            println!(
-                "[Timer Thread] Five seconds have passed since anything was printed."
-            );
+        if self.seconds_since_last_input % 5 == 0 && self.seconds_since_last_input != 0 {
+            println!("[Timer Thread] Five seconds have passed since anything was printed.");
         }
         self.seconds_since_last_input += 1;
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -61,8 +54,9 @@ impl TimerPrinterEventHandlers for TimerPrinter {
     fn on_input_received(&mut self, _event: InputReceived) {
         self.n_times_reset += 1;
         self.publish_timer_reset(TimerReset::new(
-                self.n_times_reset, self.seconds_since_last_input
-                ));
+            self.n_times_reset,
+            self.seconds_since_last_input,
+        ));
         self.seconds_since_last_input = 0;
     }
 }
@@ -70,7 +64,11 @@ impl TimerPrinterEventHandlers for TimerPrinter {
 impl PrintStdoutEventHandlers for PrintStdout {
     fn on_input_received(&mut self, event: InputReceived) {
         println!("[Input Thread] Received line {}", event.line);
-        let words = event.line.split(' ').map(|s| s.to_string()).collect::<Vec<_>>();
+        let words = event
+            .line
+            .split(' ')
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
         let n_words = words.len();
         self.publish_words_received(WordsReceived::new(words, n_words));
     }

@@ -6,7 +6,7 @@ pel::create_event_loops!(
     active_loops:
         PublisherLoop
             {cvar: Arc<PelTestCondvar> = Arc::new(PelTestCondvar::new())}
-            publishes (TestEvent) subscribes to ()
+            publishes (TestEvent)
 
     reactive_loops:
         SubscriberLoop
@@ -15,7 +15,7 @@ pel::create_event_loops!(
                 counter1: Arc<Mutex<u32>> = Arc::new(Mutex::new(0)),
                 counter2: Arc<Mutex<u32>> = Arc::new(Mutex::new(0))
             }
-            publishes () subscribes to (TestEvent)
+            subscribes to (TestEvent)
 );
 
 impl MainLoop for PublisherLoop {
@@ -23,10 +23,6 @@ impl MainLoop for PublisherLoop {
         self.cvar.wait();
         self.publish_test_event(TestEvent::new(1, 2));
     }
-}
-
-impl PublisherLoopEventHandlers for PublisherLoop {
-    // No event handlers - subscribed to nothing
 }
 
 impl PublisherLoop {
@@ -87,10 +83,4 @@ fn test_event_propagation() {
     subscriber_cvar.wait();
     assert_eq!(*subscriber_counter1.lock().unwrap(), 2);
     assert_eq!(*subscriber_counter2.lock().unwrap(), 4);
-
-    // Increase again
-    publisher_cvar.notify();
-    subscriber_cvar.wait();
-    assert_eq!(*subscriber_counter1.lock().unwrap(), 3);
-    assert_eq!(*subscriber_counter2.lock().unwrap(), 6);
 }

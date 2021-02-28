@@ -6,9 +6,9 @@ use std::io::prelude::*;
 pel::create_event_loops! {
     events: InputReceived { line: String }
 
-    active_loops: ReadStdin {} publishes ( InputReceived ) subscribes to ( )
+    active_loops: ReadStdin {} publishes ( InputReceived )
 
-    reactive_loops: PrintStdout {} publishes () subscribes to ( InputReceived )
+    reactive_loops: PrintStdout {} subscribes to ( InputReceived )
 }
 
 impl MainLoop for ReadStdin {
@@ -21,10 +21,6 @@ impl MainLoop for ReadStdin {
             });
         }
     }
-}
-
-impl ReadStdinEventHandlers for ReadStdin {
-    // No events
 }
 
 impl PrintStdoutEventHandlers for PrintStdout {

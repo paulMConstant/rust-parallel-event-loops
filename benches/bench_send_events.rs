@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use pel::PelTestCondvar;
 
@@ -60,7 +60,6 @@ fn bench_one_small_event(c: &mut Criterion) {
 
     pel_launch_every_event_loop_but_main(all_event_loops);
     std::thread::spawn(move || pel_run_main_loop_indefinitely(main_event_loop));
-
 
     c.bench_function("Bench few small events", |b| {
         b.iter(|| {
