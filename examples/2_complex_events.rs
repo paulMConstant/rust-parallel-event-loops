@@ -1,12 +1,14 @@
-//! The 'Read Stdin' thread runs continuously to read stdin. When a line is read, it publishes an
+//! The Read Stdin thread reads stdin (wakes up when a line is read). When a line is read, it publishes an
 //! event.
-//! The 'Timer Printer' thread runs continuously and prints the number of seconds since a line was
-//! read from stdin. When a line is read, it resets its counter.
 //!
-//! The PrintStdout thread runs only when a line is read from stdin, prints it, then goes back to
-//! sleep.
-//! The PrintWords thread runs only when a word is found in a line from stdin, prints it, then goes
-//! back to sleep.
+//! The TimerPrinter thread runs once per second and emits a message when the user has not entered
+//! text for five seconds. When a user enters text, the timer is reset.
+//!
+//! The PrintStdout thread runs when a line is read from stdin, prints it, then goes back to
+//! sleep. When the timer is reset, the event is also printed.
+//!
+//! The PrintWorkCount thread receives all words which come from stdin and keeps track of how many
+//! words were sent.
 
 use std::io::prelude::*;
 
@@ -31,6 +33,7 @@ pel::create_event_loops!(
                     PrintWordCount {counter: usize = 0} 
                         subscribes to (WordsReceived));
 
+// read_stdin.rs
 impl MainLoop for ReadStdin {
     fn main_loop(&mut self) {
         println!("[Read Stdin Thread] Send me text and I will notify the other threads.");
@@ -50,6 +53,7 @@ impl MainLoop for TimerPrinter {
     }
 }
 
+// timer_printer.rs
 impl TimerPrinterEventHandlers for TimerPrinter {
     fn on_input_received(&mut self, _event: InputReceived) {
         self.n_times_reset += 1;
@@ -61,6 +65,7 @@ impl TimerPrinterEventHandlers for TimerPrinter {
     }
 }
 
+// print_stdout.rs
 impl PrintStdoutEventHandlers for PrintStdout {
     fn on_input_received(&mut self, event: InputReceived) {
         println!("[Input Thread] Received line {}", event.line);
@@ -78,6 +83,7 @@ impl PrintStdoutEventHandlers for PrintStdout {
     }
 }
 
+// print_word_count.rs
 impl PrintWordCountEventHandlers for PrintWordCount {
     fn on_words_received(&mut self, event: WordsReceived) {
         self.counter += event.n_words;

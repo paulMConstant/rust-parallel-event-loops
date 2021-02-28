@@ -1,34 +1,3 @@
-/// A simple wrapper around a condvar, implemented for convenience.
-/// See the official rust doc on condvar.
-pub struct PelTestCondvar {
-    lock: ::std::sync::Mutex<bool>,
-    cvar: ::std::sync::Condvar,
-}
-
-impl PelTestCondvar {
-    pub fn new() -> Self {
-        PelTestCondvar {
-            lock: ::std::sync::Mutex::new(false),
-            cvar: ::std::sync::Condvar::new(),
-        }
-    }
-
-    pub fn wait(&self) {
-        // Wait for event (thread put to sleep while waiting)
-        let mut events_available = self.lock.lock().unwrap();
-        while !*events_available {
-            events_available = self.cvar.wait(events_available).unwrap();
-        }
-        *events_available = false;
-    }
-
-    pub fn notify(&self) {
-        let mut events_available = self.lock.lock().unwrap();
-        *events_available = true;
-        self.cvar.notify_one();
-    }
-}
-
 /// Creates n event loops, each running in its separate thread.
 /// There are two types of loops: active loops and reactive loops.
 /// Each type of loop can subscribe to events and publish events.
@@ -477,3 +446,34 @@ macro_rules! create_event_loops {
 } // ::paste::paste
 } // Macro parameters
 } // macro_rules!
+
+/// A simple wrapper around a condvar, implemented for convenience.
+/// See the official rust doc on condvar.
+pub struct PelTestCondvar {
+    lock: ::std::sync::Mutex<bool>,
+    cvar: ::std::sync::Condvar,
+}
+
+impl PelTestCondvar {
+    pub fn new() -> Self {
+        PelTestCondvar {
+            lock: ::std::sync::Mutex::new(false),
+            cvar: ::std::sync::Condvar::new(),
+        }
+    }
+
+    pub fn wait(&self) {
+        // Wait for event (thread put to sleep while waiting)
+        let mut events_available = self.lock.lock().unwrap();
+        while !*events_available {
+            events_available = self.cvar.wait(events_available).unwrap();
+        }
+        *events_available = false;
+    }
+
+    pub fn notify(&self) {
+        let mut events_available = self.lock.lock().unwrap();
+        *events_available = true;
+        self.cvar.notify_one();
+    }
+}
