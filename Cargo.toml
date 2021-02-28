@@ -6,5 +6,12 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[dev-dependencies]
+criterion = "0.3"
+
 [dependencies]
 paste = "1.0.4"
+
+[[bench]]
+name = "bench_send_events"
+harness = false
