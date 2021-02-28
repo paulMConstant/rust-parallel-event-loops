@@ -1,57 +1,59 @@
-/// Creates n event loops, each running in its separate thread.
-/// There are two types of loops: active loops and reactive loops.
-/// Each type of loop can subscribe to events and publish events.
-///
-/// Active loops run continuously. The process\_events() function is non-blocking.
-/// ```ignore
-/// loop {
-///     active_loop.process_events();
-///     active_loop.main_loop();
-/// }
-/// ```
-///
-/// Reactive loops run only when they receive events. The process\_events() function is blocking:
-/// the thread goes to sleep when there are no events to process.
-/// ```ignore
-/// loop {
-///     reactive_loops.process_events();
-/// }
-/// ```
-///
-/// process\_events functions are generated automatically, in this form (pseudo-code) :
-/// ```ignore
-/// pub fn process_events(event: PelAllEvents) {
-///     match event {
-///         PelAllEvents::EventA(event_a) => self.on_event_a(event_a),
-///         PelAllEvents::EventB(event_b) => self.on_event_b(event_b),
-///         _ => panic!("Unhandled event"),
-///     }
-/// }
-/// ```
-///
-/// Each loop has a custom trait to implement, in the case above, assuming the event\_loop is called
-/// Test, it must implement the following trait:
-/// ```ignore
-/// pub trait TestEventHandlers {
-///     fn on_event_a(&self, EventA) {
-///         // Do something
-///     }
-///
-///     fn on_event_b(&self, EventB) {
-///         // Do something
-///     }
-/// }
-///```
-///
-/// In the case of active event loops, they also have to implement the MainLoop trait in which they
-/// define their main\_loop function:
-/// ```ignore
-/// pub trait MainLoop {
-///     fn main_loop(&self) {
-///         // Do something repeatedly, using a state which maybe changes due to process_events.
-///     }
-/// }
-/// ```
+//! Creates n event loops, each running in its separate thread.
+//!
+//! There are two types of loops: active loops and reactive loops.
+//! Each type of loop can subscribe to events and publish events.
+//!
+//! Active loops run continuously. The process\_events() function is non-blocking.
+//! ```ignore
+//! loop {
+//!     active_loop.process_events();
+//!     active_loop.main_loop();
+//! }
+//! ```
+//!
+//! Reactive loops run only when they receive events. The process\_events() function is blocking:
+//! the thread goes to sleep when there are no events to process.
+//! ```ignore
+//! loop {
+//!     reactive_loops.process_events();
+//! }
+//! ```
+//!
+//! process\_events functions are generated automatically, in this form (pseudo-code) :
+//! ```ignore
+//! pub fn process_events(event: PelAllEvents) {
+//!     match event {
+//!         PelAllEvents::EventA(event_a) => self.on_event_a(event_a),
+//!         PelAllEvents::EventB(event_b) => self.on_event_b(event_b),
+//!         _ => panic!("Unhandled event"),
+//!     }
+//! }
+//! ```
+//!
+//! Each loop has a custom trait to implement, in the case above, assuming the event\_loop is called
+//! Test, it must implement the following trait:
+//! ```ignore
+//! pub trait TestEventHandlers {
+//!     fn on_event_a(&self, EventA) {
+//!         // Do something
+//!     }
+//!
+//!     fn on_event_b(&self, EventB) {
+//!         // Do something
+//!     }
+//! }
+//!```
+//!
+//! In the case of active event loops, they also have to implement the MainLoop trait in which they
+//! define their main\_loop function:
+//! ```
+//! pub trait MainLoop {
+//!     fn main_loop(&self) {
+//!         // Do something repeatedly, using a state which maybe changes due to process_events.
+//!     }
+//! }
+//! ```
+
 #[macro_export]
 macro_rules! create_event_loops {
     (events: $($event_name: ident { $($event_field: ident : $event_field_type: ty),* }),*
@@ -75,10 +77,14 @@ macro_rules! create_event_loops {
     // Create the events enum, containing all structs
     #[derive(Clone)]
     pub enum PelAllEvents {
+        PelInternalExitEvent,
         $($event_name($event_name),)*
     }
 
     // Create the event structs
+    #[derive(Clone)]
+    pub struct PelInternalExitEvent {}
+
     $(
     #[derive(Clone)]
     pub struct $event_name {
@@ -141,6 +147,7 @@ macro_rules! create_event_loops {
 
         // For each event the active loop can send, create a custom function
         $($(
+        /// Sends the event to all threads which are subscribed.
         pub fn [<publish_ $event_to_publish_active:snake>](
             &self, [<$event_to_publish_active:snake>]: $event_to_publish_active) {
                 // An error means we have been disconnected.
@@ -160,18 +167,29 @@ macro_rules! create_event_loops {
             }
         }
 
-        // For each event the active loop can receive, call a custom handler
+        /// For each event the active loop can receive, call a custom handler.
         pub fn process_events(&mut self) {
-            // Don't wait here, we don't want this function to put the thread to sleep.
-            while let Ok(event) = self._pel_internal_event_receiver.try_recv() {
-                match event {
+            match self._pel_internal_event_receiver.try_recv() {
+                Ok(event) => match event {
                     $($(PelAllEvents::$event_to_react_to_active(
                             [<$event_to_react_to_active:snake>]) =>
                         self.[<on_ $event_to_react_to_active:snake>](
                             [<$event_to_react_to_active:snake>]),)*)*
                     _ => panic!("Unhandled event"),
+                },
+                Err(::std::sync::mpsc::TryRecvError::Empty) => {
+                    // Do nothing if no event is received
+                },
+                Err(::std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // Disconnected from main thread
+                    ::std::process::exit(0);
                 }
             }
+        }
+
+        /// Exit the application. Terminates all threads.
+        pub fn exit(&self) -> Result<(), ::std::sync::mpsc::SendError<PelAllEvents>> {
+            self._pel_internal_event_sender.send(PelAllEvents::PelInternalExitEvent {})
         }
     }
     )*)*
@@ -213,6 +231,7 @@ macro_rules! create_event_loops {
 
         // For each event the reactive loop can send, create a custom function
         $($(
+        /// Sends the event to all threads which are subscribed.
         pub fn [<publish _$event_to_publish_reactive:snake>](
             &self, [<$event_to_publish_reactive:snake>]: $event_to_publish_reactive) {
                 // An error means we have been disconnected.
@@ -232,17 +251,26 @@ macro_rules! create_event_loops {
             }
         }
 
-        // For each event the reactive loop can receive, call a custom handler
+        /// For each event the reactive loop can receive, call a custom handler.
         pub fn process_events(&mut self) {
-            while let Ok(event) = self._pel_internal_event_receiver.recv() {
-                match event {
+            match self._pel_internal_event_receiver.recv() {
+                Ok(event) => match event {
                     $($(PelAllEvents::$event_to_react_to_reactive(
                             [<$event_to_react_to_reactive:snake>]) =>
                         self.[<on_ $event_to_react_to_reactive:snake>](
                             [<$event_to_react_to_reactive:snake>].clone()),)*)*
                     _ => panic!("Unhandled event"),
-                }
+                },
+                Err(::std::sync::mpsc::RecvError) => {
+                    // Disconnected from main thread
+                    ::std::process::exit(0);
+                },
             }
+        }
+
+        /// Exit the application. Terminates all threads.
+        pub fn exit(&self) -> Result<(), ::std::sync::mpsc::SendError<PelAllEvents>> {
+            self._pel_internal_event_sender.send(PelAllEvents::PelInternalExitEvent {})
         }
     }
     )*)*
@@ -306,14 +334,20 @@ macro_rules! create_event_loops {
 
         pub fn dispatch_events(&self) {
             // Process events
-            while let Ok(event) = self._pel_internal_event_receiver.recv() {
-                match event {
-                    // For every possible event
+            match self._pel_internal_event_receiver.recv() {
+                Ok(event) => match event {
                     $(PelAllEvents::$event_name([<$event_name:snake>]) => {
                         self.send_to_subscribed_event_senders(
                             &PelAllEvents::$event_name([<$event_name:snake>]));
                     },)*
-                }
+                    PelInternalExitEvent => {
+                        ::std::process::exit(0);
+                    },
+                },
+                Err(::std::sync::mpsc::RecvError) => {
+                    // Disconnected
+                    ::std::process::exit(1);
+                },
             }
         }
     }
@@ -352,15 +386,13 @@ macro_rules! create_event_loops {
             let [<_pel_useless_ $event_to_react_to_reactive>] = 0;)*)*)*)*
 
         // Main event queue in which all events are sent
-        let (pel_main_event_sender, pel_main_event_receiver) =
-            ::std::sync::mpsc::channel();
+        let (pel_main_event_sender, pel_main_event_receiver) = ::std::sync::mpsc::channel();
 
         // Create active event loops
         $($(
         // Reactive event queue in which all events are sent
         let ([<pel_ $active_loop_name:snake _event_sender>],
-             [<pel_ $active_loop_name:snake _event_receiver>]) =
-            ::std::sync::mpsc::channel();
+             [<pel_ $active_loop_name:snake _event_receiver>]) = ::std::sync::mpsc::channel();
 
         let [<pel_ $active_loop_name:snake _struct>] = $active_loop_name::new(
             pel_main_event_sender.clone(),
@@ -374,8 +406,7 @@ macro_rules! create_event_loops {
         $($(
         // Reactive event queue in which all events are sent
         let ([<pel_ $reactive_loop_name:snake _event_sender>],
-             [<pel_ $reactive_loop_name:snake _event_receiver>]) =
-            ::std::sync::mpsc::channel();
+             [<pel_ $reactive_loop_name:snake _event_receiver>]) = ::std::sync::mpsc::channel();
 
         let [<pel_ $reactive_loop_name:snake _struct>] = $reactive_loop_name::new(
             pel_main_event_sender.clone(),
@@ -448,6 +479,7 @@ macro_rules! create_event_loops {
 } // macro_rules!
 
 /// A simple wrapper around a condvar, implemented for convenience.
+///
 /// See the official rust doc on condvar.
 pub struct PelTestCondvar {
     lock: ::std::sync::Mutex<bool>,

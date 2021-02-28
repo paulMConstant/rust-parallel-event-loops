@@ -1,5 +1,5 @@
-//! The Read Stdin thread reads stdin (wakes up when a line is read). When a line is read, it publishes an
-//! event.
+//! The Read Stdin thread reads stdin (wakes up when a line is read). When a line is read, it
+//! publishes an event.
 //!
 //! The TimerPrinter thread runs once per second and emits a message when the user has not entered
 //! text for five seconds. When a user enters text, the timer is reset.
