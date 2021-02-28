@@ -1,4 +1,5 @@
-//! The 'Read Stdin' thread runs continuously to read stdin. When a line is read, it publishes an event.
+//! The 'Read Stdin' thread runs continuously to read stdin. When a line is read, it publishes an 
+//! event.
 //! The 'Timer Printer' thread runs continuously and prints the number of seconds since a line was
 //! read from stdin. When a line is read, it resets its counter.
 //!
@@ -10,13 +11,26 @@
 use std::io::prelude::*;
 
 pel::create_event_loops!(
-    events: InputReceived { line: String }, WordReceived { word: String }, TimerReset {}
+    events: InputReceived { line: String }, 
+            WordsReceived { words: Vec<String>, n_words: usize },
+            TimerReset { n_times_reset: usize, seconds_since_last_input: usize }
 
-    active_loops: ReadStdin {} publishes (InputReceived) subscribes to (),
-                  TimerPrinter {counter: u32 = 0} publishes (TimerReset) subscribes to (InputReceived)
+    active_loops: ReadStdin {} 
+                    publishes (InputReceived, WordsReceived) subscribes to (),
 
-    reactive_loops: PrintStdout {} publishes (WordReceived) subscribes to (InputReceived),
-                    PrintWords {} publishes () subscribes to (WordReceived));
+                  TimerPrinter {
+                      seconds_since_last_input: usize = 0,
+                      n_times_reset: usize = 0
+                  } 
+                    publishes (TimerReset) subscribes to (InputReceived)
+
+    reactive_loops: PrintStdout {} 
+                        publishes (WordsReceived) 
+                        subscribes to (InputReceived, TimerReset),
+
+                    PrintWordCount {counter: usize = 0} 
+                        publishes () 
+                        subscribes to (WordsReceived));
 
 impl MainLoop for ReadStdin {
     fn main_loop(&mut self) {
@@ -33,34 +47,43 @@ impl ReadStdinEventHandlers for ReadStdin {
 
 impl MainLoop for TimerPrinter {
     fn main_loop(&mut self) {
-        println!(
-            "[Timer Thread] Seconds since text was printed: {}",
-            self.counter
-        );
-        self.counter += 1;
+        if self.seconds_since_last_input%5 == 0 && self.seconds_since_last_input != 0 {
+            println!(
+                "[Timer Thread] Five seconds have passed since anything was printed."
+            );
+        }
+        self.seconds_since_last_input += 1;
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
 impl TimerPrinterEventHandlers for TimerPrinter {
     fn on_input_received(&mut self, _event: InputReceived) {
-        self.counter = 0;
-        self.publish_timer_reset(TimerReset::new());
+        self.n_times_reset += 1;
+        self.publish_timer_reset(TimerReset::new(
+                self.n_times_reset, self.seconds_since_last_input
+                ));
+        self.seconds_since_last_input = 0;
     }
 }
 
 impl PrintStdoutEventHandlers for PrintStdout {
     fn on_input_received(&mut self, event: InputReceived) {
         println!("[Input Thread] Received line {}", event.line);
-        for word in event.line.split(' ') {
-            self.publish_word_received(WordReceived::new(word.to_string()));
-        }
+        let words = event.line.split(' ').map(|s| s.to_string()).collect::<Vec<_>>();
+        let n_words = words.len();
+        self.publish_words_received(WordsReceived::new(words, n_words));
+    }
+
+    fn on_timer_reset(&mut self, _event: TimerReset) {
+        println!("[Input Thread] The timer counter just woke up and reset.");
     }
 }
 
-impl PrintWordsEventHandlers for PrintWords {
-    fn on_word_received(&mut self, event: WordReceived) {
-        println!("[Word Thread] Received word {}", event.word);
+impl PrintWordCountEventHandlers for PrintWordCount {
+    fn on_words_received(&mut self, event: WordsReceived) {
+        self.counter += event.n_words;
+        println!("[Word Thread] Total words received : {}", self.counter);
     }
 }
 

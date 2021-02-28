@@ -106,7 +106,7 @@ macro_rules! create_event_loops {
     // Create the events enum, containing all structs
     #[derive(Clone)]
     pub enum PelAllEvents {
-        $($event_name($event_name)),*
+        $($event_name($event_name),)*
     }
 
     // Create the event structs
@@ -117,9 +117,9 @@ macro_rules! create_event_loops {
     }
 
     impl $event_name {
-        pub fn new($($event_field: $event_field_type),*) -> Self {
+        pub fn new($($event_field: $event_field_type,)*) -> Self {
             $event_name {
-                $($event_field),*
+                $($event_field,)*
             }
         }
     }
@@ -145,7 +145,7 @@ macro_rules! create_event_loops {
     // Create a custom trait with all handlers, must be implemented
     pub trait [<$active_loop_name EventHandlers>] {
         $(fn [<on_ $event_to_react_to_active:snake>](&mut self,
-                                                     event: $event_to_react_to_active);),*
+                                                     event: $event_to_react_to_active);)*
     }
 
     // Calling this function ensures that the handler trait is implemented by the struct
@@ -177,12 +177,12 @@ macro_rules! create_event_loops {
                     PelAllEvents::$event_to_publish_active([<$event_to_publish_active:snake>])
                 );
         }
-        ),*
+        )*
 
         pub const fn is_subscribed_to_event(event: &PelAllEvents) -> bool {
             match event {
                 $(PelAllEvents::$event_to_react_to_active(
-                        [<$event_to_react_to_active:snake>]) => true,),*
+                        [<$event_to_react_to_active:snake>]) => true,)*
                 _ => false,
             }
         }
@@ -195,7 +195,7 @@ macro_rules! create_event_loops {
                     $(PelAllEvents::$event_to_react_to_active(
                             [<$event_to_react_to_active:snake>]) =>
                         self.[<on_ $event_to_react_to_active:snake>](
-                            [<$event_to_react_to_active:snake>]),),*
+                            [<$event_to_react_to_active:snake>]),)*
                     _ => panic!("Unhandled event"),
                 }
             }
@@ -219,7 +219,7 @@ macro_rules! create_event_loops {
     // Create a custom trait with all handlers, must be implemented
     pub trait [<$reactive_loop_name EventHandlers>] {
         $(fn [<on_ $event_to_react_to_reactive:snake>](&mut self,
-                                                       event: $event_to_react_to_reactive);),*
+                                                       event: $event_to_react_to_reactive);)*
     }
     // Calling this function ensures that the trait is implemented by the struct
     fn [<_pel_assert_ $reactive_loop_name:snake _implements_its_event_handler_trait>]
@@ -246,12 +246,12 @@ macro_rules! create_event_loops {
                     PelAllEvents::$event_to_publish_reactive([<$event_to_publish_reactive:snake>])
                 );
         }
-        ),*
+        )*
 
         pub const fn is_subscribed_to_event(event: &PelAllEvents) -> bool {
             match event {
                 $(PelAllEvents::$event_to_react_to_reactive(
-                        [<$event_to_react_to_reactive:snake>]) => true,),*
+                        [<$event_to_react_to_reactive:snake>]) => true,)*
                 _ => false,
             }
         }
@@ -263,7 +263,7 @@ macro_rules! create_event_loops {
                     $(PelAllEvents::$event_to_react_to_reactive(
                             [<$event_to_react_to_reactive:snake>]) =>
                         self.[<on_ $event_to_react_to_reactive:snake>](
-                            [<$event_to_react_to_reactive:snake>].clone()),),*
+                            [<$event_to_react_to_reactive:snake>].clone()),)*
                     _ => panic!("Unhandled event"),
                 }
             }
