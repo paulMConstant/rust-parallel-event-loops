@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 pel::create_event_loops!(
     events: IncreaseCounters {value1: u32, value2: u32}, ResetCounters {}
 
-    active_loops:
+    active loops:
         PublisherLoopIncreaseCounters
             {cvar: Arc<PelTestCondvar> = Arc::new(PelTestCondvar::new())}
             publishes (IncreaseCounters),
@@ -13,7 +13,7 @@ pel::create_event_loops!(
             {cvar: Arc<PelTestCondvar> = Arc::new(PelTestCondvar::new())}
             publishes (ResetCounters)
 
-    reactive_loops:
+    reactive loops:
         SubscriberLoop
             {
                 cvar: Arc<PelTestCondvar> = Arc::new(PelTestCondvar::new()),

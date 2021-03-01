@@ -17,7 +17,7 @@ pel::create_event_loops!(
             WordsReceived { words: Vec<String>, n_words: usize },
             TimerReset { n_times_reset: usize, seconds_since_last_input: usize }
 
-    active_loops: ReadStdin {} 
+    active loops: ReadStdin {} 
                     publishes (InputReceived, WordsReceived),
 
                   TimerPrinter {
@@ -26,7 +26,7 @@ pel::create_event_loops!(
                   } 
                     publishes (TimerReset) subscribes to (InputReceived)
 
-    reactive_loops: PrintStdout {} 
+    reactive loops: PrintStdout {} 
                         publishes (WordsReceived) 
                         subscribes to (InputReceived, TimerReset),
 

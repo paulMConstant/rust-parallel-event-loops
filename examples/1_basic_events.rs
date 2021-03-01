@@ -6,9 +6,11 @@ use std::io::prelude::*;
 pel::create_event_loops! {
     events: InputReceived { line: String }
 
-    active_loops: ReadStdin {} publishes ( InputReceived )
+    active loops: ReadStdin {} publishes ( InputReceived )
 
-    reactive_loops: PrintStdout {} subscribes to ( InputReceived )
+    reactive loops: PrintStdout {} subscribes to ( InputReceived )
+
+    log file: "test.log"
 }
 
 impl MainLoop for ReadStdin {

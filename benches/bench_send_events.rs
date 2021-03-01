@@ -105,7 +105,7 @@ pel::create_event_loops!(
     events: TestEventSmall {},
             TestEventBig {values: Vec<usize>}
 
-    active_loops:
+    active loops:
         PublisherOneSmallEvent
             {cvar: Arc<PelTestCondvar> = Arc::new(PelTestCondvar::new())}
             publishes (TestEventSmall),
@@ -130,7 +130,7 @@ pel::create_event_loops!(
             {cvar: Arc<PelTestCondvar> = Arc::new(PelTestCondvar::new())}
             publishes (TestEventBig)
 
-    reactive_loops:
+    reactive loops:
         SubscriberOneSmallEvent
             {
                 cvar: Arc<PelTestCondvar> = Arc::new(PelTestCondvar::new())
